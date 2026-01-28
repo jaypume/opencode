@@ -14,6 +14,26 @@ export namespace Log {
     ERROR: 3,
   }
 
+  // ANSI color codes
+  const colors = {
+    reset: "\x1b[0m",
+    gray: "\x1b[90m",
+    white: "\x1b[37m",
+    blue: "\x1b[34m",
+    green: "\x1b[32m",
+    yellow: "\x1b[33m",
+    red: "\x1b[31m",
+    cyan: "\x1b[36m",
+    magenta: "\x1b[35m",
+  }
+
+  const levelColors: Record<Level, string> = {
+    DEBUG: colors.blue,
+    INFO: colors.white,
+    WARN: colors.yellow,
+    ERROR: colors.red,
+  }
+
   let level: Level = "INFO"
 
   function shouldLog(input: Level): boolean {
@@ -31,7 +51,7 @@ export namespace Log {
       message: string,
       extra?: Record<string, any>,
     ): {
-      stop(): void
+      stop(extraOnStop?: Record<string, any>): void
       [Symbol.dispose](): void
     }
   }
@@ -94,7 +114,6 @@ export namespace Log {
       : result
   }
 
-  let last = Date.now()
   export function create(tags?: Record<string, any>) {
     tags = tags || {}
 
@@ -106,43 +125,86 @@ export namespace Log {
       }
     }
 
-    function build(message: any, extra?: Record<string, any>) {
+    function formatTimestamp(date: Date): string {
+      const year = date.getFullYear()
+      const month = String(date.getMonth() + 1).padStart(2, "0")
+      const day = String(date.getDate()).padStart(2, "0")
+      const hours = String(date.getHours()).padStart(2, "0")
+      const minutes = String(date.getMinutes()).padStart(2, "0")
+      const seconds = String(date.getSeconds()).padStart(2, "0")
+      const ms = String(date.getMilliseconds()).padStart(3, "0")
+      return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}.${ms}`
+    }
+
+    function getCallerInfo(): string {
+      const stack = new Error().stack
+      if (!stack) return ""
+      
+      const lines = stack.split("\n")
+      // Skip first 4 lines: Error, getCallerInfo, build, and the log method (debug/info/etc)
+      for (let i = 4; i < lines.length; i++) {
+        const line = lines[i]
+        // Match file path and line number
+        const match = line.match(/\((.+):(\d+):(\d+)\)/) || line.match(/at (.+):(\d+):(\d+)/)
+        if (match) {
+          const filePath = match[1]
+          const lineNum = match[2]
+          // Extract parent directory and filename from the full path
+          const parts = filePath.split("/")
+          const fileName = parts.pop() || filePath
+          const parentDir = parts.pop()
+          const displayPath = parentDir ? `${parentDir}/${fileName}` : fileName
+          return `${displayPath}:${lineNum}`
+        }
+      }
+      return ""
+    }
+
+    function build(level: Level, message: any, extra?: Record<string, any>) {
+      const timestamp = formatTimestamp(new Date())
+      const levelColor = levelColors[level]
+      const callerInfo = getCallerInfo()
+      
       const prefix = Object.entries({
         ...tags,
         ...extra,
       })
         .filter(([_, value]) => value !== undefined && value !== null)
         .map(([key, value]) => {
-          const prefix = `${key}=`
-          if (value instanceof Error) return prefix + formatError(value)
-          if (typeof value === "object") return prefix + JSON.stringify(value)
-          return prefix + value
+          if (value instanceof Error) return `${key}:` + formatError(value)
+          if (typeof value === "object") return `${key}:` + JSON.stringify(value)
+          return `${key}:${value}`
         })
         .join(" ")
-      const next = new Date()
-      const diff = next.getTime() - last
-      last = next.getTime()
-      return [next.toISOString().split(".")[0], "+" + diff + "ms", prefix, message].filter(Boolean).join(" ") + "\n"
+      
+      const parts = [
+        level.padEnd(5),
+        callerInfo || null,
+        prefix,
+        message
+      ]
+      const content = parts.filter(Boolean).join(" | ")
+      return `${colors.gray}${timestamp}${colors.reset} | ${levelColor}${content}${colors.reset}\n`
     }
     const result: Logger = {
       debug(message?: any, extra?: Record<string, any>) {
         if (shouldLog("DEBUG")) {
-          write("DEBUG " + build(message, extra))
+          write(build("DEBUG", message, extra))
         }
       },
       info(message?: any, extra?: Record<string, any>) {
         if (shouldLog("INFO")) {
-          write("INFO  " + build(message, extra))
+          write(build("INFO", message, extra))
         }
       },
       error(message?: any, extra?: Record<string, any>) {
         if (shouldLog("ERROR")) {
-          write("ERROR " + build(message, extra))
+          write(build("ERROR", message, extra))
         }
       },
       warn(message?: any, extra?: Record<string, any>) {
         if (shouldLog("WARN")) {
-          write("WARN  " + build(message, extra))
+          write(build("WARN", message, extra))
         }
       },
       tag(key: string, value: string) {
@@ -154,12 +216,13 @@ export namespace Log {
       },
       time(message: string, extra?: Record<string, any>) {
         const now = Date.now()
-        result.info(message, { status: "started", ...extra })
-        function stop() {
-          result.info(message, {
-            status: "completed",
-            duration: Date.now() - now,
-            ...extra,
+        const startExtra = { ...extra }
+        function stop(extraOnStop?: Record<string, any>) {
+          const duration = Date.now() - now
+          result.debug(message, {
+            duration: `${duration}ms`,
+            ...startExtra,
+            ...extraOnStop,
           })
         }
         return {
