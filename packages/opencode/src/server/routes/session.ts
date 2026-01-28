@@ -726,7 +726,24 @@ export const SessionRoutes = lazy(() =>
         return stream(c, async (stream) => {
           const sessionID = c.req.valid("param").sessionID
           const body = c.req.valid("json")
+
+          // 记录接收到的消息, logging for what the opencode recieved.
+          log.info("session.message.request", {
+            sessionID,
+            message: JSON.stringify(body),
+          })
+
           const msg = await SessionPrompt.prompt({ ...body, sessionID })
+
+          // 记录返回的消息 logging for what the opencode response.
+          log.info("session.message.response", {
+            sessionID,
+            messageID: msg.info.id,
+            role: msg.info.role,
+            partsCount: msg.parts.length,
+            response: JSON.stringify(msg),
+          })
+
           stream.write(JSON.stringify(msg))
         })
       },

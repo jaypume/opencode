@@ -90,20 +90,19 @@ export namespace Server {
         })
         .use(async (c, next) => {
           const skipLogging = c.req.path === "/log"
-          if (!skipLogging) {
-            log.info("request", {
-              method: c.req.method,
-              path: c.req.path,
-            })
+          if (skipLogging) {
+            await next()
+            return
           }
+          
           const timer = log.time("request", {
             method: c.req.method,
             path: c.req.path,
           })
           await next()
-          if (!skipLogging) {
-            timer.stop()
-          }
+          timer.stop({
+            status: c.res.status,
+          })
         })
         .use(
           cors({
