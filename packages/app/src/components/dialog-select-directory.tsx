@@ -19,7 +19,14 @@ export function DialogSelectDirectory(props: DialogSelectDirectoryProps) {
   const dialog = useDialog()
 
   const home = createMemo(() => sync.data.path.home)
-  const root = createMemo(() => sync.data.path.home || sync.data.path.directory)
+  // 自定义搜索根目录为 ~/code/gba/
+  const root = createMemo(() => {
+    const h = sync.data.path.home
+    if (h) {
+      return h + "/code/gba"
+    }
+    return sync.data.path.directory
+  })
 
   function join(base: string | undefined, rel: string) {
     const b = (base ?? "").replace(/[\\/]+$/, "")
@@ -62,7 +69,7 @@ export function DialogSelectDirectory(props: DialogSelectDirectoryProps) {
     if (!directory) return [] as string[]
 
     const results = await sdk.client.find
-      .files({ directory, query, type: "directory", limit: 50 })
+      .files({ directory, query, type: "directory", limit: 100 })
       .then((x) => x.data ?? [])
       .catch(() => [])
 
